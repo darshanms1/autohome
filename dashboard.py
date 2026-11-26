@@ -343,9 +343,32 @@ def process_sensor_alerts(sample: dict[str, Any]) -> None:
                 STATE["gas_alert_active"] = False
 
 
-def poll_pi(client: paramiko.SSHClient) -> None:
+def connect_pi(password: str) -> paramiko.SSHClient:
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    client.connect(
+        hostname=PI_HOST,
+        username=PI_USER,
+        password=password,
+        look_for_keys=True,
+        allow_agent=True,
+        timeout=8,
+        banner_timeout=8,
+        auth_timeout=8,
+    )
+    return client
+
+
+def poll_pi(password: str) -> None:
+    client: paramiko.SSHClient | None = None
     while not STOP.is_set():
         try:
+            transport = client.get_transport() if client else None
+            if not transport or not transport.is_active():
+                if client:
+                    client.close()
+                client = connect_pi(password)
             _stdin, stdout, stderr = client.exec_command(f"cat {REMOTE_STATUS}", timeout=5)
             payload = stdout.read().decode("utf-8")
             err = stderr.read().decode("utf-8").strip()
@@ -353,11 +376,22 @@ def poll_pi(client: paramiko.SSHClient) -> None:
                 raise RuntimeError(err or "Pi returned an empty sensor status")
             sample = json.loads(payload)
             epoch = float(sample["updated_epoch"])
-            try:
-                process_sensor_alerts(sample)
-            except Exception as alert_exc:
-                with STATE_LOCK:
-                    STATE["alert_error"] = f"Alert history save failed: {type(alert_exc).__name__}: {alert_exc}"
+        except Exception as exc:
+            if client:
+                client.close()
+                client = None
+            with STATE_LOCK:
+                STATE["connected"] = False
+                STATE["error"] = f"Pi connection or sensor read failed: {type(exc).__name__}: {exc}"
+            STOP.wait(5)
+            continue
+
+        try:
+            process_sensor_alerts(sample)
+        except Exception as alert_exc:
+            with STATE_LOCK:
+                STATE["alert_error"] = f"Alert history save failed: {type(alert_exc).__name__}: {alert_exc}"
+        try:
             with STATE_LOCK:
                 prior_epoch = STATE["last_saved_epoch"]
             if prior_epoch is None or epoch > prior_epoch:
@@ -366,24 +400,21 @@ def poll_pi(client: paramiko.SSHClient) -> None:
                     STATE["last_saved_epoch"] = epoch
                     STATE["csv_error"] = ("CSV is open or locked; buffering new rows in sensor_readings.pending.csv. Close the CSV to merge them automatically." if csv_locked else None)
             else:
-                try:
-                    flush_pending_rows()
-                    with STATE_LOCK:
-                        STATE["csv_error"] = None
-                except PermissionError:
-                    with STATE_LOCK:
-                        STATE["csv_error"] = "CSV is open or locked; new rows are buffered locally until it can be updated."
-            received_at = datetime.now().astimezone().isoformat(timespec="seconds")
+                flush_pending_rows()
+                with STATE_LOCK:
+                    STATE["csv_error"] = None
+        except PermissionError:
             with STATE_LOCK:
-                STATE.update(connected=True, error=None, sample=sample, received_at=received_at)
-        except Exception as exc:
+                STATE["csv_error"] = "CSV is open or locked; new rows are buffered locally until it can be updated."
+        except Exception as csv_exc:
             with STATE_LOCK:
-                if isinstance(exc, (paramiko.SSHException, OSError, RuntimeError, json.JSONDecodeError)):
-                    STATE["connected"] = False
-                    STATE["error"] = f"Pi connection or sensor read failed: {type(exc).__name__}: {exc}"
-                else:
-                    STATE["csv_error"] = f"CSV save failed: {type(exc).__name__}: {exc}"
+                STATE["csv_error"] = f"CSV save failed: {type(csv_exc).__name__}: {csv_exc}"
+        received_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        with STATE_LOCK:
+            STATE.update(connected=True, error=None, sample=sample, received_at=received_at)
         STOP.wait(POLL_SECONDS)
+    if client:
+        client.close()
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -522,24 +553,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     password = getpass.getpass(f"SSH password for {PI_USER}@{PI_HOST} (used in memory only): ")
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.RejectPolicy())
-    client.connect(
-        hostname=PI_HOST,
-        username=PI_USER,
-        password=password,
-        look_for_keys=True,
-        allow_agent=True,
-        timeout=8,
-        banner_timeout=8,
-        auth_timeout=8,
-    )
-    password = ""
-    print(f"Connected to {PI_USER}@{PI_HOST}; host key verified from your Windows known_hosts.")
     restore_alert_state()
-    thread = threading.Thread(target=poll_pi, args=(client,), daemon=True)
+    thread = threading.Thread(target=poll_pi, args=(password,), daemon=True)
     thread.start()
+    print(f"Connecting to {PI_USER}@{PI_HOST} in the background; the dashboard will retry SSH if it drops.")
     server = ThreadingHTTPServer(("127.0.0.1", PORT), DashboardHandler)
     url = f"http://127.0.0.1:{PORT}/"
     print(f"Dashboard: {url}")
@@ -553,7 +570,6 @@ def main() -> None:
     finally:
         STOP.set()
         server.server_close()
-        client.close()
 
 
 if __name__ == "__main__":
