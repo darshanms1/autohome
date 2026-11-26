@@ -1,0 +1,19 @@
+[Unit]
+Description=AutoHome live temperature humidity and gas OLED display
+After=local-fs.target systemd-udev-trigger.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=%i
+SupplementaryGroups=gpio i2c spi
+WorkingDirectory=/home/%i/autohome
+ExecStart=/home/%i/autohome/.venv/bin/python -u /home/%i/autohome/oled_demo.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+KillMode=control-group
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

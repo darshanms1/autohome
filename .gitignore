@@ -1,0 +1,20 @@
+# Local Python environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+
+# Live readings and alert history
+sensor_readings*.csv
+sensor_alerts*.csv
+oled-demo-status.json
+oled-demo.lock
+*.log
+
+# Local connection settings and handover notes
+dashboard.local.json
+AUTOHOME_AGENT_CONTEXT.md
+
+# Per-device configuration and generated reports
+pi4-diagnostics/hardware.json
+pi4-diagnostics/*.report.json
+pi4-diagnostics/preflight.json

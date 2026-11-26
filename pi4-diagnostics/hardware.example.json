@@ -1,0 +1,19 @@
+{
+  "board": "TMI-IoT-PRJ-RPi-02 — mapping not established",
+  "dht22": {"wiring_verified": false, "bcm": null},
+  "adc": {
+    "wiring_verified": false,
+    "bus": 0,
+    "device": 0,
+    "speed_hz": 100000,
+    "vref": null,
+    "channels": {"gas": null, "light": null}
+  },
+  "oled": {"wiring_verified": false, "address": null, "width": 128, "height": 64},
+  "relay": {"wiring_verified": false, "bcm": null, "active_high": null},
+  "buzzer": {"wiring_verified": false, "bcm": null, "active_high": null},
+  "led1": {"wiring_verified": false, "bcm": null, "active_high": null},
+  "led2": {"wiring_verified": false, "bcm": null, "active_high": null},
+  "sw1": {"wiring_verified": false, "bcm": null, "pull_up": null},
+  "sw2": {"wiring_verified": false, "bcm": null, "pull_up": null}
+}

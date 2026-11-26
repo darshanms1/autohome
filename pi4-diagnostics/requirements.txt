@@ -1,0 +1,6 @@
+# Install inside a venv on the Pi; preflight needs only Python's standard library.
+Adafruit-Blinka>=8,<9
+adafruit-circuitpython-dht>=4,<5
+adafruit-circuitpython-ssd1306>=2,<3
+gpiozero>=2,<3
+spidev>=3,<4
